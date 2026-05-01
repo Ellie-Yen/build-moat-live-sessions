@@ -39,4 +39,10 @@ def generate_token(url: str, db: Session) -> str:
     #    with SHA-256, pass the digest to base62_encode(), truncate to TOKEN_LENGTH.
     # 2. Use token_exists_in_db() to check for collisions — return on the first
     #    free token, raise RuntimeError if all retries are exhausted.
-    raise NotImplementedError("generate_token() is not yet implemented")
+    for _ in range(MAX_RETRIES):
+        nonce = str(time.monotonic())
+        digest = hashlib.sha256((url + nonce).encode()).digest()
+        token = base62_encode(digest)[:TOKEN_LENGTH]
+        if not token_exists_in_db(db, token=token):
+            return token
+    raise RuntimeError("token all retries are exhausted")

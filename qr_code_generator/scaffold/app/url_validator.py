@@ -27,4 +27,24 @@ def validate_url(url: str) -> str:
     # 1. Validate: length within MAX_URL_LENGTH, scheme is http/https via
     #    urlparse(), hostname is not in is_blocked_domain(). Raise ValueError otherwise.
     # 2. Normalize and return: lowercase, strip trailing slash, upgrade http→https.
-    raise NotImplementedError("validate_url() is not yet implemented")
+    if len(url) > MAX_URL_LENGTH:
+        raise ValueError(f"invalid url length: {len(url)} (accept: {MAX_URL_LENGTH})")
+    
+    parsed_url = urlparse(url)
+    if is_blocked_domain(parsed_url.hostname):
+        raise ValueError(f"invalid url domain")
+
+    return _normalize_url(url)
+
+def _normalize_url(url: str) -> str:
+    u = urlparse(url)
+
+    # due to requirement, http -> https, trailing slash is striped
+    schema = u.scheme.lower()
+    host = u.hostname.lower()
+    p = u.path.rstrip('/')
+    q = u.query
+    if schema == 'http':
+        schema = 'https'
+    return f'{schema}://{host}{p}' + (f'?{q}' if q else '')
+

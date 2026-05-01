@@ -1,5 +1,5 @@
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 
 import qrcode
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,7 +16,7 @@ from .url_validator import validate_url
 router = APIRouter()
 
 # In-memory cache (simulates Redis for prototype)
-redirect_cache: dict[str, str] = {}
+redirect_cache: dict[str, [str, datetime]] = {} # type: ignore
 
 BASE_URL = "http://localhost:8000"
 
@@ -40,7 +40,7 @@ def create_qr(req: CreateRequest, db: Session = Depends(get_db)):
     short_url = f"{BASE_URL}/r/{token}"
 
     # Warm cache
-    redirect_cache[token] = normalized_url
+    redirect_cache[token] = [normalized_url, req.expires_at]
 
     return CreateResponse(
         token=token,
@@ -64,7 +64,20 @@ def redirect(token: str, request: Request, db: Session = Depends(get_db)):
     #    RedirectResponse(status_code=302).
     # 2. On miss, query the DB: raise 404 if not found, 410 if is_deleted or
     #    past expires_at; otherwise warm the cache, _record_scan(), and 302.
-    raise NotImplementedError("redirect() is not yet implemented")
+    if token not in redirect_cache:
+        mapping = _get_mapping_or_404(token=token, db=db)
+        if mapping.is_deleted:
+            raise HTTPException(status_code=410, detail="Deleted")
+        
+        redirect_cache[token] = [mapping.original_url, mapping.expires_at]
+    
+    [target, expired_at] = redirect_cache[token]
+    if expired_at is not None and expired_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Deleted")
+
+    _record_scan(token=token, request=request, db=db)
+    
+    return RedirectResponse(status_code=302, url=target)
 
 
 @router.get("/api/qr/{token}", response_model=QRInfoResponse)
@@ -79,7 +92,7 @@ def update_qr(token: str, req: UpdateRequest, db: Session = Depends(get_db)):
 
     if req.url is not None:
         try:
-            mapping.original_url = validate_url(req.url)
+            mapping.original_url = validate_url(req.url)    
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
         # Invalidate cache
@@ -142,7 +155,7 @@ def get_analytics(token: str, db: Session = Depends(get_db)):
 
 def _get_mapping_or_404(token: str, db: Session) -> UrlMapping:
     mapping = db.query(UrlMapping).filter(UrlMapping.token == token).first()
-    if mapping is None or mapping.is_deleted:
+    if mapping is None:
         raise HTTPException(status_code=404, detail="Not Found")
     return mapping
 
