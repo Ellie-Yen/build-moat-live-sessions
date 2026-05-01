@@ -8,8 +8,8 @@ FAIL=0
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 
-pass() { green "  PASS: $1"; ((PASS++)); }
-fail() { red   "  FAIL: $1"; ((FAIL++)); }
+pass() { green "  PASS: $1"; PASS=$((PASS+1)); }
+fail() { red   "  FAIL: $1"; FAIL=$((FAIL+1)); }
 
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
@@ -37,7 +37,7 @@ echo "--- 1. Create QR code ---"
 CREATE_RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/qr/create" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com"}')
-CREATE_BODY=$(echo "$CREATE_RESP" | head -n -1)
+CREATE_BODY=$(echo "$CREATE_RESP" | awk 'NR>1{print prev} {prev=$0}')
 CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n 1)
 
 assert_eq "POST /api/qr/create → 200" "200" "$CREATE_STATUS"
@@ -59,7 +59,7 @@ echo ""
 # ── 3. Get info ──────────────────────────────────────────────────────────────────
 echo "--- 3. Get info ---"
 INFO_RESP=$(curl -s -w '\n%{http_code}' "$BASE_URL/api/qr/$TOKEN")
-INFO_BODY=$(echo "$INFO_RESP" | head -n -1)
+INFO_BODY=$(echo "$INFO_RESP" | awk 'NR>1{print prev} {prev=$0}')
 INFO_STATUS=$(echo "$INFO_RESP" | tail -n 1)
 
 assert_eq "GET /api/qr/{token} → 200" "200" "$INFO_STATUS"
@@ -93,7 +93,7 @@ echo ""
 # ── 7. Analytics ──────────────────────────────────────────────────────────────
 echo "--- 7. Analytics ---"
 ANALYTICS_RESP=$(curl -s -w '\n%{http_code}' "$BASE_URL/api/qr/$TOKEN/analytics")
-ANALYTICS_BODY=$(echo "$ANALYTICS_RESP" | head -n -1)
+ANALYTICS_BODY=$(echo "$ANALYTICS_RESP" | awk 'NR>1{print prev} {prev=$0}')
 ANALYTICS_STATUS=$(echo "$ANALYTICS_RESP" | tail -n 1)
 
 assert_eq "GET /api/qr/{token}/analytics → 200" "200" "$ANALYTICS_STATUS"
@@ -124,7 +124,7 @@ echo "--- 11. Expiration (create with past expiry) ---"
 EXPIRED_RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/qr/create" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com", "expires_at": "2000-01-01T00:00:00Z"}')
-EXPIRED_BODY=$(echo "$EXPIRED_RESP" | head -n -1)
+EXPIRED_BODY=$(echo "$EXPIRED_RESP" | awk 'NR>1{print prev} {prev=$0}')
 EXPIRED_CREATE_STATUS=$(echo "$EXPIRED_RESP" | tail -n 1)
 
 if [[ "$EXPIRED_CREATE_STATUS" == "200" ]]; then
