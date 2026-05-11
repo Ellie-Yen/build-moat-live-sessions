@@ -6,7 +6,6 @@ Run as a stdio MCP server:
 Or test with the inspector:
     npx @modelcontextprotocol/inspector python -m app.mcp_server
 """
-
 import asyncio
 import json
 from datetime import datetime
@@ -19,7 +18,7 @@ from sqlalchemy.orm import Session
 from .database import Base, SessionLocal, engine
 from .models import Job
 from .scheduler import get_time_bucket, start_scheduler
-
+from .utils import to_utc, utcnow
 
 # ===================================================================
 # Tool handlers — pure business logic, sync, take a DB Session
@@ -28,7 +27,10 @@ from .scheduler import get_time_bucket, start_scheduler
 
 def handle_create_task(db: Session, *, description: str, scheduled_at: str) -> dict:
     """Create a new scheduled job."""
-    dt = datetime.fromisoformat(scheduled_at)
+    dt = to_utc(scheduled_at)
+
+    if dt < utcnow():
+        return {"error": f"Cannot create task with past scheduled_at"}
     job = Job(
         description=description,
         scheduled_at=dt,
@@ -37,7 +39,8 @@ def handle_create_task(db: Session, *, description: str, scheduled_at: str) -> d
     db.add(job)
     db.commit()
     db.refresh(job)
-    return {"job_id": job.id, "status": job.status, "scheduled_at": str(job.scheduled_at)}
+    # return time_bucket for debugging
+    return {"job_id": job.id, "status": job.status, "scheduled_at": str(job.scheduled_at), "time_bucket": job.time_bucket}
 
 
 def handle_get_status(db: Session, *, job_id: int) -> dict:
@@ -45,11 +48,13 @@ def handle_get_status(db: Session, *, job_id: int) -> dict:
     job = db.query(Job).filter(Job.id == job_id).first()
     if job is None:
         return {"error": f"Job {job_id} not found"}
+    # return time_bucket for debugging
     return {
         "job_id": job.id,
         "description": job.description,
         "status": job.status,
         "scheduled_at": str(job.scheduled_at),
+        "time_bucket": job.time_bucket,
         "result": job.result,
     }
 
@@ -154,7 +159,12 @@ TOOL_DEFINITIONS: list[Tool] = [
 # 3. Values are the handler functions defined earlier in this file
 #    (e.g., handle_create_task)
 # 4. There are 4 tools: task.create, task.list, task.status, task.cancel
-TOOL_REGISTRY: dict = {}
+TOOL_REGISTRY: dict = {
+    "task.create": handle_create_task,
+    "task.list": handle_list_tasks,
+    "task.status": handle_get_status,
+    "task.cancel": handle_cancel_task,
+}
 
 
 def route_tool_call(tool_name: str, arguments: dict, db: Session) -> dict:
@@ -174,7 +184,13 @@ def route_tool_call(tool_name: str, arguments: dict, db: Session) -> dict:
     # 2. If not found, return {"error": f"Unknown tool: {tool_name}"}
     # 3. If found, call the handler with db and **arguments
     # 4. Return the handler's result
-    return {"error": "Not implemented"}
+
+    tool = TOOL_REGISTRY.get(tool_name)
+    if not tool:
+        return {"error": f"Unknown tool: {tool_name}"}
+
+    res = tool(db, **arguments)
+    return res
 
 
 # ===================================================================

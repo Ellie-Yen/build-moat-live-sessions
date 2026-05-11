@@ -1,14 +1,11 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import DateTime, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
+from .utils import utcnow
 
-
-def _utcnow() -> datetime:
-    """Naive UTC datetime — replacement for deprecated datetime.utcnow()."""
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Job(Base):
@@ -20,9 +17,9 @@ class Job(Base):
     scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, queued, running, completed, failed, cancelled
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
+        DateTime, default=utcnow, onupdate=utcnow
     )
 
     __table_args__ = (

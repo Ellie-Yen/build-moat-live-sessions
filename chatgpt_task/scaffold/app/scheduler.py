@@ -1,3 +1,4 @@
+import sys
 import queue
 import threading
 import time
@@ -6,7 +7,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
-from .models import Job, _utcnow
+from .models import Job
+from .utils import utcnow
 
 # In-memory queue (simulates SQS for prototype)
 job_queue: queue.Queue[int] = queue.Queue()
@@ -27,7 +29,7 @@ def get_time_bucket(scheduled_at: datetime) -> str:
     # 1. Format the datetime into a string that represents an hourly bucket
     # 2. Use strftime with a format like "%Y%m%d%H" (e.g., "2025030114")
     # 3. This bucket string becomes the partition key in the jobs table
-    return "0000000000"
+    return scheduled_at.strftime("%Y%m%d%H")
 
 
 def find_due_jobs(current_time: datetime, db: Session) -> list[Job]:
@@ -47,7 +49,15 @@ def find_due_jobs(current_time: datetime, db: Session) -> list[Job]:
     # 2. Query Job where time_bucket matches AND scheduled_at <= current_time
     # 3. Only include jobs with status == "pending"
     # 4. Return the list of matching Job objects
-    return []
+    current_time_bucket = get_time_bucket(current_time)
+    jobs = db.query(Job).filter(
+        Job.status == "pending",
+        Job.time_bucket == current_time_bucket,
+        Job.scheduled_at <= current_time,
+    ).all()
+    print("find_due_jobs", current_time_bucket, "match", len(jobs), file=sys.stderr)
+
+    return jobs
 
 
 def watcher_loop(interval: int = 10):
@@ -55,7 +65,7 @@ def watcher_loop(interval: int = 10):
     while True:
         db = SessionLocal()
         try:
-            now = _utcnow()
+            now = utcnow()
             due_jobs = find_due_jobs(now, db)
             for job in due_jobs:
                 job.status = "queued"
